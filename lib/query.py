@@ -12,7 +12,7 @@ answers say how many of those sit above a cut, since only a build can check them
 import collections, functools, os, pickle, re, sys
 
 ROOT = os.path.abspath(os.environ.get('LINGLIB_ROOT', os.getcwd()))    # the linglib checkout
-TABLE = os.environ.get('TENDRILS_TABLE', os.path.join(ROOT, '.lake/build/declaration-dependencies/table.tsv'))
+TABLE = os.environ.get('TAPROOT_TABLE', os.path.join(ROOT, '.lake/build/declaration-dependencies/table.tsv'))
 IMPORT = re.compile(r'^(?:public )?(?:meta )?import (?:all )?((?:Linglib|Studies)\.\S+)')
 sys.setrecursionlimit(30000)
 short = lambda m: m.replace('Linglib.', '')

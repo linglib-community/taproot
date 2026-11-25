@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Build the dependency map of the library: which declarations each study theorem's statement rests on.
 
-    python3 gen_tendrils.py [--out DIR] [--lib DIR] [--modules FILE]
-    python3 gen_tendrils.py --extract-only DIR
-    python3 gen_tendrils.py --from-table DIR [--out DIR]
-    python3 gen_tendrils.py --times BUILD_LOG
+    python3 taproot.py [--out DIR] [--lib DIR] [--modules FILE]
+    python3 taproot.py --extract-only DIR
+    python3 taproot.py --from-table DIR [--out DIR]
+    python3 taproot.py --times BUILD_LOG
 
 Run it from a linglib checkout, or with `LINGLIB_ROOT` naming one, after `lake build`. It reads the compiled modules under `.lake/build/lib/lean` (or `--lib`), so a
 module that is not compiled, or whose imports are not, is left out and listed as unmeasured. `--modules`
 restricts the run to the modules a file lists. The page and its data land in `--out`
-(default `.lake/build/tendrils`): `index.html`, `graph.json` and, where scikit-learn is installed,
-`landscape.json`, the layout of the page's map (`tendrils/landscape.py`).
+(default `.lake/build/taproot`): `index.html`, `graph.json` and, where scikit-learn is installed,
+`landscape.json`, the layout of the page's map (`lib/landscape.py`).
 
 `--extract-only` stops after writing the declaration table to a directory, which the nightly build
 uploads; `--from-table` builds the page from such a directory without a compiled library.
@@ -85,7 +85,7 @@ def extract(args, table_dir):
         # Two compiled modules that disagree on a generated declaration cannot be loaded together:
         # leave out the later one and its importers, and try again.
         open(mods, 'w').write('\n'.join(keep) + '\n')
-        r = subprocess.run([lean, '--run', os.path.join(HERE, 'tendrils/Extract.lean'), mods, table], capture_output=True,
+        r = subprocess.run([lean, '--run', os.path.join(HERE, 'lib/Extract.lean'), mods, table], capture_output=True,
                            text=True, env={**os.environ, 'LEAN_PATH': lean_path})
         hit = CONFLICT.search(r.stdout + r.stderr)
         if not hit:
@@ -110,7 +110,7 @@ def extract(args, table_dir):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('--out', default=os.path.join(ROOT, '.lake/build/tendrils'))
+    ap.add_argument('--out', default=os.path.join(ROOT, '.lake/build/taproot'))
     ap.add_argument('--lib', default=os.path.join(ROOT, '.lake/build/lib/lean'))
     ap.add_argument('--modules')
     ap.add_argument('--extract-only', metavar='DIR')
@@ -130,9 +130,9 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         d = args.from_table or tmp
         if not args.from_table: extract(args, d)
-        subprocess.run([sys.executable, os.path.join(HERE, 'tendrils/analyze.py'), os.path.join(d, 'table.tsv'),
+        subprocess.run([sys.executable, os.path.join(HERE, 'lib/analyze.py'), os.path.join(d, 'table.tsv'),
                         os.path.join(d, 'mods.txt'), os.path.join(d, 'missing.txt'), args.out], check=True)
-    with open(os.path.join(HERE, 'tendrils/page.html'), encoding='utf-8') as src, \
+    with open(os.path.join(HERE, 'lib/page.html'), encoding='utf-8') as src, \
             open(os.path.join(args.out, 'index.html'), 'w', encoding='utf-8') as dst:
         dst.write(src.read())
     try:
@@ -140,7 +140,7 @@ def main():
     except ImportError:
         print('scikit-learn is not installed: the page is written without its map')
     else:
-        subprocess.run([sys.executable, os.path.join(HERE, 'tendrils/landscape.py'),
+        subprocess.run([sys.executable, os.path.join(HERE, 'lib/landscape.py'),
                         os.path.join(args.out, 'graph.json'), args.out], check=True)
     print(f'wrote {args.out}')
 

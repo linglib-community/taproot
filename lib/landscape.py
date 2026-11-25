@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Place every hand-written file on a plane, near the files its declarations use.
 
-    python3 tendrils/landscape.py GRAPH_JSON OUT_DIR [--source DIR] [--weights FILE]
+    python3 lib/landscape.py GRAPH_JSON OUT_DIR [--source DIR] [--weights FILE]
 
 Reads the `graph.json` of `analyze.py` and writes `landscape.json` to `OUT_DIR`: one row per file, in
-the order of the files in `graph.json`, holding x, y, the file's exposure, its suspicion and its uses
+the order of the files in `graph.json`, holding x, y, the file's exposure, its review priority and its uses
 of `decide` per theorem, or `null` for a generated data file, which is left off the map. The page
 draws the map from it and hides the map where the file is absent.
 
@@ -16,7 +16,7 @@ points closer than a fixed gap are pushed apart, so that every file can be picke
 between neighbourhoods and the axes carry no meaning.
 
 Exposure is how much rests on a file: for a study its number of theorems, for a library file the
-studies whose claims rest on it and the files above it. Suspicion is a weighted mean of signals in
+studies whose claims rest on it and the files above it. Review priority is a weighted mean of signals in
 [0, 1]: for every file, uses of `decide` per theorem, whether it has a flagged declaration, and
 whether it states no theorem; for a study, the shares of its claims that stop in the file and that
 reach the library thinly; for a library file, the share of its imports that go unused. `--weights`
@@ -24,7 +24,7 @@ names a JSON object of weights by signal that replaces `WEIGHTS`. `--source` (de
 or the current directory) is where the files' text is read; pass the tree `graph.json` was measured
 on.
 
-Needs numpy, scipy and scikit-learn. `gen_tendrils.py` skips this step where they are missing.
+Needs numpy, scipy and scikit-learn. `taproot.py` skips this step where they are missing.
 """
 import argparse, json, math, os, re
 
@@ -57,7 +57,7 @@ def main():
             j = work.pop()
             if j not in seen: seen.add(j); work.extend(mods[j][14])
         for j in seen: above[j] += 1
-    exposure, decide, generated, susp = [], [], [], []
+    exposure, decide, generated, priority = [], [], [], []
     for i, m in enumerate(mods):
         try: text = open(os.path.join(src, m[1].replace('.', '/') + '.lean'), encoding='utf-8').read()
         except OSError: text = ''
@@ -75,7 +75,7 @@ def main():
         else:
             sig['unused_imports'] = 1 - m[7] / m[6] if m[6] else 0.0
             exposure.append(1 + math.log2(1 + m[10]) + 0.5 * math.log2(1 + above[i]))
-        susp.append(sum(W[k] * v for k, v in sig.items()) / sum(W[k] for k in sig))
+        priority.append(sum(W[k] * v for k, v in sig.items()) / sum(W[k] for k in sig))
     r_, c_, v_ = [], [], []
     for i, m in enumerate(mods):
         use = set(m[15])
@@ -109,7 +109,7 @@ def main():
     with open(os.path.join(out, 'landscape.json'), 'w', encoding='utf-8') as fh:
         fh.write('[\n' + ',\n'.join(
             json.dumps(None if generated[i] else
-                       [round(float(xy[i][0]), 4), round(float(xy[i][1]), 4), r3(exposure[i]), r3(susp[i]),
+                       [round(float(xy[i][0]), 4), round(float(xy[i][1]), 4), r3(exposure[i]), r3(priority[i]),
                         r3(decide[i])])
             for i in range(n)) + '\n]\n')
     print(f'{k} files placed, {n - k} generated files left off; '

@@ -1,7 +1,7 @@
 /-
-Declaration-level dependencies of the library, for `gen_tendrils.py`.
+Declaration-level dependencies of the library, for `taproot.py`.
 
-`lean --run tendrils/Extract.lean <modules.txt> <out.tsv>` loads every listed module with its
+`lean --run lib/Extract.lean <modules.txt> <out.tsv>` loads every listed module with its
 private data and writes one line per declaration: name, module, kind, flags, the declarations its type
 mentions, the declarations its value mentions, those reached only through a default argument, and the
 areas of Lean and mathlib it rests on.

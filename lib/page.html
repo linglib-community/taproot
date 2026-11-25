@@ -430,7 +430,7 @@ function drawTables(lib) {
 }
 
 /* ---------------------------------------------------------------- landscape */
-// landscape.json has one row per file, in the order of the files: x, y, exposure, suspicion, decide per theorem; null for a generated file
+// landscape.json has one row per file, in the order of the files: x, y, exposure, review priority, decide per theorem; null for a generated file
 const LAND = { pts: null, v: [], metric: 'stop', on: new Set(['study', 'theory', 'core', 'data']), q: '', k: 1, cx: .5, cy: .5, hover: -1, sel: -1, max: 1, W: 0, H: 0, col: {} };
 const claimShare = (m, cut) => { const cl = CLAIMS[m.i]; return m.layer !== 'study' || !cl || !cl.length ? null : cl.filter(c => level(c) >= cut).length / cl.length; };
 const LMET = {
@@ -438,10 +438,10 @@ const LMET = {
   thin: ['those, plus claims that reach three shared declarations or fewer (studies)', m => claimShare(m, 1)],
   decide: ['uses of decide per theorem', m => LAND.pts[m.i] && LAND.pts[m.i][4]],
   unused: ['share of imported files nothing in the file uses (library files)', m => m.layer === 'study' || !m.nimp ? null : 1 - m.nuse / m.nimp],
-  susp: ['audit suspicion, the feed\'s mix of these signals', m => LAND.pts[m.i] && LAND.pts[m.i][3]] };
+  priority: ['review priority, a weighted mix of these signals', m => LAND.pts[m.i] && LAND.pts[m.i][3]] };
 const LLAY = [['study', 'studies'], ['theory', 'theory'], ['core', 'core'], ['data', 'data and languages']];
 const landOn = i => LAND.pts[i] != null && LAND.on.has(MODS[i].layer);
-const landFmt = v => v == null ? '–' : LAND.metric === 'susp' ? v.toFixed(2) : Math.round(v * 100) + '%';
+const landFmt = v => v == null ? '–' : LAND.metric === 'priority' ? v.toFixed(2) : Math.round(v * 100) + '%';
 const landBand = v => { const t = v / LAND.max; return t <= .02 ? 0 : bin(Math.min(1, t)); };
 function landColors() {
   const s = getComputedStyle(document.documentElement), g = n => s.getPropertyValue(n).trim();
