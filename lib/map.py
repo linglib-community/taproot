@@ -43,6 +43,15 @@ def source_counts(root, mods):
         kd.append(len(re.findall(r'\bdecide\s*\+kernel\b', text)))
     return dict(kd=kd, ml=ml)
 
+def build_times(table, mods):
+    """Per file, the seconds its last recorded build took (`times.tsv` beside the table), or 0."""
+    path, t = os.path.join(os.path.dirname(table), 'times.tsv'), {}
+    if os.path.exists(path):
+        for line in open(path, encoding='utf-8'):
+            m, _, sec = line.strip().partition('\t')
+            if sec: t[m] = float(sec)
+    return [round(t.get(m, 0), 1) for m in mods]
+
 def own_groups(root):
     """The families and layout of `lib/groups.py`, read from the checkout."""
     spec = importlib.util.spec_from_file_location('groups', os.path.join(HERE, 'groups.py'))
@@ -99,7 +108,7 @@ def build(out, base=None, base_label='', groups=None, label=''):
     page = open(os.path.join(HERE, 'map.html'), encoding='utf-8').read()
     for key, val in (('__FILES__', [short(m) for m in mods]), ('__IMP__', imp), ('__REST__', rest),
                      ('__RANK__', rank[:400]), ('__META__', meta), ('__BASE__', old),
-                     ('__SRC__', source_counts(q.ROOT, mods)), ('__TITLES__', titles(q.ROOT, mods)),
+                     ('__SRC__', dict(source_counts(q.ROOT, mods), bt=build_times(q.TABLE, mods))), ('__TITLES__', titles(q.ROOT, mods)),
                      ('__GROUPS__', json.load(open(groups, encoding='utf-8')) if groups else own_groups(q.ROOT))):
         page = page.replace(key, json.dumps(val, separators=(',', ':')))
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)

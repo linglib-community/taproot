@@ -4,6 +4,7 @@
 #   tap refresh                 fetch the newest nightly table and its sources, if not already here
 #   tap up FILE                 what rests on a file, and how
 #   tap cone FILE | why A B | needs FILE | users DECL | roots | hot [DIR] | cut FILE IMPORT | move NEW DECL...
+#   tap slow [N]                the files that took longest to build (once a clean nightly has run)
 #   tap changed [FILE...]       against the nightly before: what each file newly carries or no longer does
 #   tap map [ADDRESS]           build the page and open it, e.g.  tap map 'f/Syntax.Feature.Bundle?up=1'
 #   tap test                    build the page and run its checks
@@ -46,7 +47,7 @@ page() {
 
 cmd="${1:-help}"; shift || true
 case "$cmd" in
-  help|-h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+  help|-h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' ;;
   refresh) refresh; age "$(latest)" ;;
   map) page; addr="${1:-}"; url="file://$cache/map.html${addr:+#$addr}"; echo "$url"; command -v open >/dev/null && open "$url" || true ;;
   test) page; bash "$here/lib/test_map.sh" "$cache/map.html" "${1:-Syntax.Feature.Bundle}" ;;

@@ -83,6 +83,12 @@ def changed(files: list[str] | None = None) -> str:
 
 
 @mcp.tool()
+def slowest(top: int = 15) -> str:
+    """The files that took longest to build in the last clean build, with how many files wait on each."""
+    return tap('slow', str(top))
+
+
+@mcp.tool()
 def cut_import(file: str, imported: str) -> str:
     """Simulate removing one import line from `file`: who would lose something they use."""
     return tap('cut', file, imported)

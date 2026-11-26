@@ -9,6 +9,7 @@
     query.py up MODULE                what rests on a file: who names it, who has it carried, through what
     query.py hot [DIR]                directories by the share of their users that inherit another theory area
     query.py changed OLD_TABLE [MODULE...]   against an older table: what each file newly carries or no longer does
+    query.py slow [N]                 the N files that took longest to build, and how many files wait on each
     query.py cut MODULE IMPORT        remove one import line: who loses something they use
     query.py move NEWMODULE DECL...   move declarations to a new file importing their old one
 
@@ -303,6 +304,25 @@ def main(argv):
                 if want:
                     for x in sorted(newn): print(f'      newly named: {short(x)}')
                     for x in sorted(unn): print(f'      no longer named: {short(x)}')
+    elif cmd == 'slow':
+        path, times = os.path.join(os.path.dirname(TABLE), 'times.tsv'), {}
+        if os.path.exists(path):
+            for line in open(path, encoding='utf-8'):
+                m, _, sec = line.strip().partition('\t')
+                if sec: times[m] = float(sec)
+        if not times: sys.exit('no build times with this table: they are recorded only by a build that compiles the files')
+        G = imports(); rev = collections.defaultdict(list)
+        for x, ims in G.items():
+            for i in ims: rev[i].append(x)
+        def above(m):
+            up, st = set(), [m]
+            while st:
+                for y in rev[st.pop()]:
+                    if y not in up: up.add(y); st.append(y)
+            return len(up)
+        print(f'{len(times)} files timed, {sum(times.values()) / 60:.0f} minutes of compilation in all')
+        for m, sec in sorted(times.items(), key=lambda kv: -kv[1])[:int(args[0]) if args else 15]:
+            print(f'{sec:7.1f} s  {short(m):52} {above(m):4d} files wait on it')
     elif cmd == 'cut':
         m, i = (a if a.startswith(('Linglib.', 'Studies.')) else 'Linglib.' + a for a in args[:2])
         G = imports(); G2 = dict(G); G2[m] = [x for x in G[m] if x != i]
