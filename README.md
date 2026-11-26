@@ -14,7 +14,7 @@ python3 taproot.py --extract-only DIR           # only the declaration table (th
 python3 taproot.py --from-table DIR --out OUT   # the page from a downloaded table
 TAPROOT_TABLE=DIR/table.tsv python3 lib/query.py users DECL
 python3 lib/map.py --out OUT.html [--base DIR] [--groups FILE]    # the zoomable map, one page
-bash lib/refresh_map.sh CHECKOUT OUT.html [GROUPS]              # the map from the newest nightly table
+bin/tap map [ADDRESS]                                           # the map from the newest nightly table, opened
 ```
 
 `OUT` holds `index.html`, `graph.json` and, where scikit-learn is installed, `landscape.json`.
@@ -33,4 +33,11 @@ bash lib/refresh_map.sh CHECKOUT OUT.html [GROUPS]              # the map from t
 - `lib/map.py`, `lib/map.html`: the map. Areas, then directories, then files as islands of dots,
   coloured by what is being looked for; a file opens as its whole descent to mathlib, or as what
   rests on it. Every view has an address, so it can be opened at one place with a note.
-- `lib/refresh_map.sh`: builds the map from the newest nightly table and its commit's sources.
+- `lib/groups.py`: what the map knows that imports do not say: language families, from the checkout's
+  WALS table, and the layout of the theory areas.
+- `lib/ci_map.sh`: the one line linglib's nightly workflow runs to build the published page.
+- `lib/test_map.sh`: opens a built page in headless Chrome and checks its views and gestures.
+- `bin/tap`: one command for all of it against the newest nightly table, kept in `~/.cache/taproot`
+  (`tap up FILE`, `tap why A B`, `tap hot`, `tap changed`, `tap map ADDRESS`, `tap test`,
+  `tap measure FILE...` for a branch). `tap help` lists them.
+- `mcp_server.py`: the same questions as MCP tools; `claude mcp add taproot -- python3 PATH/mcp_server.py`.

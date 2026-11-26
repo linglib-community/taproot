@@ -17,11 +17,11 @@ With `--base DIR`, a second source tree (say the branch's merge base, from `git 
 page leads with what changed against it and a directory address takes `vs=1` for before and after.
 That comparison reads import lines only, so it needs no table for the base.
 
-With `--groups FILE`, a JSON object `{directory: {child: group}}`, a directory with too many children
-to draw as islands (Languages, with its hundred languages) is drawn as one island per group, as
-families are. Children the file does not name stay ungrouped; nothing is inferred. Its key `@layout`,
-`{directory: {child: [column, row]}}` (`""` for the top level), fixes where islands sit on that
-directory's map, for an order the reader already knows; without it the columns follow the imports.
+A directory with too many children to draw as islands (Languages, with its hundred languages) is
+drawn as one island per group, and the top level sits in a fixed layout. Both come from
+`lib/groups.py`: language families from the checkout's WALS table, and the theory areas in the
+field's usual order. `--groups FILE` replaces that table with a JSON object of the same shape,
+`{directory: {child: group}, "@layout": {directory: {child: [column, row]}}}`.
 
 Takes the checkout from `LINGLIB_ROOT` and the table from `TAPROOT_TABLE`, as `query.py` does.
 """
@@ -42,6 +42,12 @@ def source_counts(root, mods):
         ml.append(len(re.findall(r'^\s*(?:public\s+)?(?:meta\s+)?import\s+Mathlib\.', raw, re.M)))
         kd.append(len(re.findall(r'\bdecide\s*\+kernel\b', text)))
     return dict(kd=kd, ml=ml)
+
+def own_groups(root):
+    """The families and layout of `lib/groups.py`, read from the checkout."""
+    spec = importlib.util.spec_from_file_location('groups', os.path.join(HERE, 'groups.py'))
+    g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
+    return g.table(root)
 
 def titles(root, mods):
     """Per file, the title of its module docstring: the first `# ` line inside the first `/-! -/`."""
@@ -94,7 +100,7 @@ def build(out, base=None, base_label='', groups=None, label=''):
     for key, val in (('__FILES__', [short(m) for m in mods]), ('__IMP__', imp), ('__REST__', rest),
                      ('__RANK__', rank[:400]), ('__META__', meta), ('__BASE__', old),
                      ('__SRC__', source_counts(q.ROOT, mods)), ('__TITLES__', titles(q.ROOT, mods)),
-                     ('__GROUPS__', json.load(open(groups, encoding='utf-8')) if groups else {})):
+                     ('__GROUPS__', json.load(open(groups, encoding='utf-8')) if groups else own_groups(q.ROOT))):
         page = page.replace(key, json.dumps(val, separators=(',', ':')))
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     open(out, 'w', encoding='utf-8').write(page)

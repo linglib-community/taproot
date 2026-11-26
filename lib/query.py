@@ -6,6 +6,9 @@
     query.py cone MODULE              each imported file: named by this file, or carried by what?
     query.py why MODULE TARGET        the chains of declarations by which MODULE rests on TARGET
     query.py roots                    directories whose root files import another theory area
+    query.py up MODULE                what rests on a file: who names it, who has it carried, through what
+    query.py hot [DIR]                directories by the share of their users that inherit another theory area
+    query.py changed OLD_TABLE [MODULE...]   against an older table: what each file newly carries or no longer does
     query.py cut MODULE IMPORT        remove one import line: who loses something they use
     query.py move NEWMODULE DECL...   move declarations to a new file importing their old one
 
@@ -20,12 +23,13 @@ IMPORT = re.compile(r'^(?:public )?(?:meta )?import (?:all )?((?:Linglib|Studies
 sys.setrecursionlimit(30000)
 short = lambda m: m.replace('Linglib.', '')
 
-def load():
-    cache = TABLE + '.idx2'
-    if os.path.exists(cache) and os.path.getmtime(cache) > os.path.getmtime(TABLE):
+def load(table=None):
+    table = table or TABLE
+    cache = table + '.idx2'
+    if os.path.exists(cache) and os.path.getmtime(cache) > os.path.getmtime(table):
         return pickle.load(open(cache, 'rb'))
     names, mods, deps, kinds, tdeps, vdeps = [], [], [], [], [], []
-    for line in open(TABLE, encoding='utf-8'):
+    for line in open(table, encoding='utf-8'):
         f = line.rstrip('\n').split('\t')
         names.append(f[0]); mods.append(f[1]); kinds.append(f[2])
         tdeps.append(tuple({int(x) for x in f[4].split(',') if x}))
@@ -90,34 +94,36 @@ def users(decls):
                 if u not in own and T['mods'][u] != home: out[T['mods'][u]] += 1
     return out
 
-def meaning(c):
+def meaning(c, tab=None):
     """What a declaration's meaning rests on: a theorem's statement, a definition's type and body."""
-    return T['tdeps'][c] if T['kinds'][c] == 'thm' else T['deps'][c]
+    tab = tab or T
+    return tab['tdeps'][c] if tab['kinds'][c] == 'thm' else tab['deps'][c]
 
-def rests(m):
+def rests(m, tab=None):
     """How the file `m` comes to rest on each other file. Returns, per file, `named` (declarations of
     `m` whose statement or definition names something there), `proof` (those that use it only in a
     proof) and `carried` (a chain `[own, carrier, ..., target]` when nothing in `m` names it)."""
-    own = T['by_mod'].get(m, [])
+    tab = tab or T
+    own = tab['by_mod'].get(m, [])
     named, proof = collections.defaultdict(set), collections.defaultdict(set)
     par, depth, work = {}, {}, collections.deque()
     for i in own:
-        seeds = set(meaning(i))
+        seeds = set(meaning(i, tab))
         for d in seeds:
-            if T['mods'][d] != m: named[T['mods'][d]].add(i)
+            if tab['mods'][d] != m: named[tab['mods'][d]].add(i)
             if d not in depth: depth[d] = 1; par[d] = i; work.append(d)
-        if T['kinds'][i] == 'thm':
-            for d in set(T['vdeps'][i]) - seeds:
-                if T['mods'][d] != m: proof[T['mods'][d]].add(i)
+        if tab['kinds'][i] == 'thm':
+            for d in set(tab['vdeps'][i]) - seeds:
+                if tab['mods'][d] != m: proof[tab['mods'][d]].add(i)
     carried = {}
     while work:
         c = work.popleft()
-        mc = T['mods'][c]
+        mc = tab['mods'][c]
         if mc != m and mc not in named and mc not in carried:
             chain = [c]
             while chain[-1] in par and chain[-1] not in own: chain.append(par[chain[-1]])
             carried[mc] = chain[::-1]
-        for d in meaning(c):
+        for d in meaning(c, tab):
             if d not in depth: depth[d] = depth[c] + 1; par[d] = c; work.append(d)
     return named, proof, carried
 
@@ -225,6 +231,78 @@ def main(argv):
             seen.add((d, t))
             print(f'{ru:4d} of {us:4d}  {short(d):36} {short(r)[len(short(d)) + 1:]:24} imports {short(t)}')
             if len(seen) >= int(args[0]) if args else len(seen) >= 30: break
+    elif cmd == 'up':
+        m = args[0] if args[0].startswith(('Linglib.', 'Studies.')) else 'Linglib.' + args[0]
+        G = imports(); rev = collections.defaultdict(list)
+        for x, ims in G.items():
+            for i in ims: rev[i].append(x)
+        up, st = set(), [m]
+        while st:
+            for y in rev[st.pop()]:
+                if y not in up: up.add(y); st.append(y)
+        kind, via = collections.Counter(), collections.Counter()
+        layer = lambda y: y.split('.')[1] if y.startswith('Linglib.') and y.split('.')[1] in ('Languages', 'Data') else \
+            'Studies' if y.startswith('Studies.') else 'theory'
+        by_layer = collections.defaultdict(collections.Counter)
+        for y in up:
+            if y not in T['by_mod']: k = 'not measured'
+            else:
+                named, proof, carried = rests(y)
+                k = 'names it' if m in named else 'has it carried' if m in carried else 'proofs only' if m in proof else 'only reaches it'
+                if m in carried:
+                    ch = carried[m]; via[T['names'][ch[1] if len(ch) > 1 else ch[0]]] += 1
+            kind[k] += 1; by_layer[layer(y)][k] += 1
+        print(f'{short(m)}: {len(up)} files rest on it')
+        for k in ('names it', 'has it carried', 'proofs only', 'only reaches it', 'not measured'):
+            if kind[k]: print(f'   {kind[k]:5d}  {k:16} ' + '  '.join(f'{L} {by_layer[L][k]}' for L in ('theory', 'Languages', 'Data', 'Studies') if by_layer[L][k]))
+        if via:
+            print('carried to them through:')
+            for d, n in via.most_common(12): print(f'   {n:5d}  {d}')
+    elif cmd == 'hot':
+        G = imports(); c = closure(G); pre = ('Linglib.' + args[0] + '.') if args else None
+        kids = collections.defaultdict(list)
+        for x in G:
+            p = x.split('.')
+            if p[0] != 'Linglib' or len(p) < 4 or p[1] not in THEORY: continue
+            if pre and not x.startswith(pre): continue
+            depth = len(pre.split('.')) if pre else 3
+            if len(p) > depth: kids['.'.join(p[:depth])].append(x)
+        rows = []
+        for d, fs in kids.items():
+            S = set(fs); entry = collections.defaultdict(set)
+            for x in fs:
+                for t in G[x]:
+                    if t not in S and area(t) in THEORY and area(t) != area(x): entry[t].add(x)
+            users = [u for u in G if u not in S and c(u) & S]
+            if not users or not entry: continue
+            every = set().union(*entry.values())
+            inh = sum(1 for u in users if c(u) & every)
+            top = max(entry, key=lambda t: sum(1 for u in users if c(u) & entry[t]))
+            rows.append((inh / len(users), inh, len(users), d, top, len(entry)))
+        for sh, inh, us, d, top, n in sorted(rows, reverse=True)[:int(os.environ.get('TAPROOT_TOP', 15))]:
+            print(f'{100 * sh:4.0f}%  {inh:4d} of {us:4d}  {short(d):40} most inherited: {short(top)}' + (f' (+{n - 1})' if n > 1 else ''))
+    elif cmd == 'changed':
+        old = load(args[0]); want = [a if a.startswith(('Linglib.', 'Studies.')) else 'Linglib.' + a for a in args[1:]]
+        carrier = lambda tab, ch: tab['names'][ch[1] if len(ch) > 1 else ch[0]]
+        rows = []
+        for m in (want or sorted(set(T['by_mod']) & set(old['by_mod']))):
+            if not m.startswith(('Linglib.', 'Studies.')) or m not in T['by_mod'] or m not in old['by_mod']: continue
+            n1, _, c1 = rests(m); n0, _, c0 = rests(m, old)
+            lib = lambda d: {x for x in d if x.startswith(('Linglib.', 'Studies.'))}
+            newc, gone = lib(c1) - lib(c0), lib(c0) - lib(c1) - lib(n1)
+            newn, unn = lib(n1) - lib(n0), lib(n0) - lib(n1)
+            moved = {x for x in lib(c1) & lib(c0) if carrier(T, c1[x]) != carrier(old, c0[x])}
+            if newc or gone or moved or (want and (newn or unn)): rows.append((len(newc) + len(gone), m, newc, gone, moved, newn, unn, c1, c0))
+        print(f'{len(rows)} files differ in what is carried to them' + ('' if want else ' (files present in both tables)'))
+        for _, m, newc, gone, moved, newn, unn, c1, c0 in sorted(rows, reverse=True)[:None if want else 30]:
+            print(f'{short(m)}:  +{len(newc)} carried  -{len(gone)} no longer' + (f'  ~{len(moved)} carrier changed' if moved else ''))
+            if want or len(rows) <= 12:
+                for x in sorted(newc): print(f'      + {short(x)}  through {carrier(T, c1[x])}')
+                for x in sorted(gone): print(f'      - {short(x)}  (was through {carrier(old, c0[x])})')
+                for x in sorted(moved): print(f'      ~ {short(x)}  {carrier(old, c0[x])} -> {carrier(T, c1[x])}')
+                if want:
+                    for x in sorted(newn): print(f'      newly named: {short(x)}')
+                    for x in sorted(unn): print(f'      no longer named: {short(x)}')
     elif cmd == 'cut':
         m, i = (a if a.startswith(('Linglib.', 'Studies.')) else 'Linglib.' + a for a in args[:2])
         G = imports(); G2 = dict(G); G2[m] = [x for x in G[m] if x != i]

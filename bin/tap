@@ -1,0 +1,67 @@
+#!/bin/bash
+# tap: one command for the dependency table of a linglib checkout.
+#
+#   tap refresh                 fetch the newest nightly table and its sources, if not already here
+#   tap up FILE                 what rests on a file, and how
+#   tap cone FILE | why A B | needs FILE | users DECL | roots | hot [DIR] | cut FILE IMPORT | move NEW DECL...
+#   tap changed [FILE...]       against the nightly before: what each file newly carries or no longer does
+#   tap map [ADDRESS]           build the page and open it, e.g.  tap map 'f/Syntax.Feature.Bundle?up=1'
+#   tap test                    build the page and run its checks
+#   tap measure FILE...         measure these files of THIS checkout (they must be built), for a branch
+#   tap -l QUERY ...            ask the table made by `tap measure` instead of the nightly one
+#
+# The checkout is $LINGLIB_CHECKOUT or the git repository you are in. Tables are kept in
+# ${TAPROOT_CACHE:-~/.cache/taproot}, one directory per commit, so they outlive any worktree.
+set -euo pipefail
+here="$(cd "$(dirname "$0")/.." && pwd)"
+repo="${LINGLIB_CHECKOUT:-$(git rev-parse --show-toplevel 2>/dev/null || true)}"
+[ -n "$repo" ] && [ -d "$repo/Linglib" ] || { echo "tap: run inside a linglib checkout or set LINGLIB_CHECKOUT" >&2; exit 2; }
+cache="${TAPROOT_CACHE:-$HOME/.cache/taproot}"; mkdir -p "$cache"
+
+refresh() {
+  local slug runs id sha
+  slug=$(git -C "$repo" remote get-url origin | sed -E 's#.*github.com[:/]##; s#\.git$##')
+  runs=$(gh run list --repo "$slug" --workflow docs.yml --status success --limit 1 --json databaseId,headSha -q '.[] | "\(.databaseId) \(.headSha)"')
+  id=${runs%% *}; sha=${runs##* }
+  if [ ! -f "$cache/$sha/table/table.tsv" ]; then
+    mkdir -p "$cache/$sha/table" "$cache/$sha/src"
+    gh run download "$id" --repo "$slug" -n declaration-dependencies -D "$cache/$sha/table"
+    git -C "$repo" fetch -q origin "$sha" 2>/dev/null || git -C "$repo" fetch -q origin
+    git -C "$repo" archive "$sha" Linglib Studies | tar -x -C "$cache/$sha/src"
+    [ -f "$cache/latest" ] && [ "$(cat "$cache/latest")" != "$sha" ] && cp "$cache/latest" "$cache/previous"
+  fi
+  echo "$sha" > "$cache/latest"
+}
+latest() { [ -f "$cache/latest" ] || refresh; cat "$cache/latest"; }
+age() {   # one line, to stderr: which table this is and how far behind
+  local sha=$1 n; n=$(git -C "$repo" rev-list --count "$sha..origin/main" 2>/dev/null || echo '?')
+  echo "[table: main ${sha:0:10}, $n behind origin/main]" >&2
+}
+page() {
+  local sha; sha=$(latest); local args=(--out "$cache/map.html" --label "main ${sha:0:10}")
+  if [ -f "$cache/previous" ] && [ -d "$cache/$(cat "$cache/previous")/src/Linglib" ]; then
+    local b; b=$(cat "$cache/previous"); args+=(--base "$cache/$b/src" --base-label "main ${b:0:10}"); fi
+  TAPROOT_TABLE="$cache/$sha/table/table.tsv" LINGLIB_ROOT="$cache/$sha/src" python3 "$here/lib/map.py" "${args[@]}" >&2
+}
+
+cmd="${1:-help}"; shift || true
+case "$cmd" in
+  help|-h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+  refresh) refresh; age "$(latest)" ;;
+  map) page; addr="${1:-}"; url="file://$cache/map.html${addr:+#$addr}"; echo "$url"; command -v open >/dev/null && open "$url" || true ;;
+  test) page; bash "$here/lib/test_map.sh" "$cache/map.html" "${1:-Syntax.Feature.Bundle}" ;;
+  measure)
+    [ $# -gt 0 ] || { echo "tap measure FILE..." >&2; exit 2; }
+    out="$repo/.lake/build/taproot-local"; mkdir -p "$out"; : > "$out/wanted.txt"
+    for f in "$@"; do case "$f" in Linglib.*|Studies.*) echo "$f";; *) echo "Linglib.$f";; esac >> "$out/wanted.txt"; done
+    (cd "$repo" && LINGLIB_ROOT="$repo" python3 "$here/taproot.py" --extract-only "$out" --modules "$out/wanted.txt") ;;
+  -l) q="${1:?query}"; shift; t="$repo/.lake/build/taproot-local/table.tsv"; [ -f "$t" ] || { echo "tap: no local table; run tap measure FILE..." >&2; exit 2; }
+      echo "[table: this checkout, $(git -C "$repo" rev-parse --short HEAD), the files given to tap measure]" >&2
+      TAPROOT_TABLE="$t" LINGLIB_ROOT="$repo" python3 "$here/lib/query.py" "$q" "$@" ;;
+  changed)
+    sha=$(latest); age "$sha"; [ -f "$cache/previous" ] || { echo "tap: only one nightly table is here so far; nothing to compare with" >&2; exit 2; }
+    old=$(cat "$cache/previous"); echo "[against main ${old:0:10}]" >&2
+    TAPROOT_TABLE="$cache/$sha/table/table.tsv" LINGLIB_ROOT="$cache/$sha/src" python3 "$here/lib/query.py" changed "$cache/$old/table/table.tsv" "$@" ;;
+  *) sha=$(latest); age "$sha"
+     TAPROOT_TABLE="$cache/$sha/table/table.tsv" LINGLIB_ROOT="$cache/$sha/src" python3 "$here/lib/query.py" "$cmd" "$@" ;;
+esac

@@ -8,7 +8,7 @@
 
 Run it from a linglib checkout, or with `LINGLIB_ROOT` naming one, after `lake build`. It reads the compiled modules under `.lake/build/lib/lean` (or `--lib`), so a
 module that is not compiled, or whose imports are not, is left out and listed as unmeasured. `--modules`
-restricts the run to the modules a file lists. The page and its data land in `--out`
+restricts the run to the modules a file lists and what they import. The page and its data land in `--out`
 (default `.lake/build/taproot`): `index.html`, `graph.json` and, where scikit-learn is installed,
 `landscape.json`, the layout of the page's map (`lib/landscape.py`).
 
@@ -63,6 +63,10 @@ def extract(args, table_dir):
     allowed = None
     if args.modules:
         allowed = {l.strip() for l in open(args.modules) if l.strip()}
+        todo = list(allowed)      # a listed module needs everything it imports to be measured
+        while todo:
+            for i in imports.get(todo.pop(), []):
+                if i not in allowed: allowed.add(i); todo.append(i)
     sys.setrecursionlimit(20000)
 
     @functools.lru_cache(None)
