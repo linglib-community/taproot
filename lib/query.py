@@ -3,6 +3,9 @@
 
     query.py users DECL...            files whose declarations mention DECL (or anything under it)
     query.py needs MODULE             what a file imports against what its declarations use
+    query.py cone MODULE              each imported file: named by this file, or carried by what?
+    query.py why MODULE TARGET        the chains of declarations by which MODULE rests on TARGET
+    query.py roots                    directories whose root files import another theory area
     query.py cut MODULE IMPORT        remove one import line: who loses something they use
     query.py move NEWMODULE DECL...   move declarations to a new file importing their old one
 
@@ -18,14 +21,16 @@ sys.setrecursionlimit(30000)
 short = lambda m: m.replace('Linglib.', '')
 
 def load():
-    cache = TABLE + '.idx'
+    cache = TABLE + '.idx2'
     if os.path.exists(cache) and os.path.getmtime(cache) > os.path.getmtime(TABLE):
         return pickle.load(open(cache, 'rb'))
-    names, mods, deps = [], [], []
+    names, mods, deps, kinds, tdeps, vdeps = [], [], [], [], [], []
     for line in open(TABLE, encoding='utf-8'):
         f = line.rstrip('\n').split('\t')
-        names.append(f[0]); mods.append(f[1])
-        deps.append(tuple({int(x) for x in (f[4] + ',' + f[5]).split(',') if x}))
+        names.append(f[0]); mods.append(f[1]); kinds.append(f[2])
+        tdeps.append(tuple({int(x) for x in f[4].split(',') if x}))
+        vdeps.append(tuple({int(x) for x in f[5].split(',') if x}))
+        deps.append(tuple(set(tdeps[-1]) | set(vdeps[-1])))
     rdeps = collections.defaultdict(list)
     for i, ds in enumerate(deps):
         for d in ds: rdeps[d].append(i)
@@ -33,7 +38,8 @@ def load():
     for i, n in enumerate(names): by_name[n].append(i)
     by_mod = collections.defaultdict(list)
     for i, m in enumerate(mods): by_mod[m].append(i)
-    idx = dict(names=names, mods=mods, deps=deps, rdeps=dict(rdeps), by_name=dict(by_name), by_mod=dict(by_mod))
+    idx = dict(names=names, mods=mods, deps=deps, rdeps=dict(rdeps), by_name=dict(by_name), by_mod=dict(by_mod),
+               kinds=kinds, tdeps=tdeps, vdeps=vdeps)
     pickle.dump(idx, open(cache, 'wb'))
     return idx
 
@@ -84,6 +90,69 @@ def users(decls):
                 if u not in own and T['mods'][u] != home: out[T['mods'][u]] += 1
     return out
 
+def meaning(c):
+    """What a declaration's meaning rests on: a theorem's statement, a definition's type and body."""
+    return T['tdeps'][c] if T['kinds'][c] == 'thm' else T['deps'][c]
+
+def rests(m):
+    """How the file `m` comes to rest on each other file. Returns, per file, `named` (declarations of
+    `m` whose statement or definition names something there), `proof` (those that use it only in a
+    proof) and `carried` (a chain `[own, carrier, ..., target]` when nothing in `m` names it)."""
+    own = T['by_mod'].get(m, [])
+    named, proof = collections.defaultdict(set), collections.defaultdict(set)
+    par, depth, work = {}, {}, collections.deque()
+    for i in own:
+        seeds = set(meaning(i))
+        for d in seeds:
+            if T['mods'][d] != m: named[T['mods'][d]].add(i)
+            if d not in depth: depth[d] = 1; par[d] = i; work.append(d)
+        if T['kinds'][i] == 'thm':
+            for d in set(T['vdeps'][i]) - seeds:
+                if T['mods'][d] != m: proof[T['mods'][d]].add(i)
+    carried = {}
+    while work:
+        c = work.popleft()
+        mc = T['mods'][c]
+        if mc != m and mc not in named and mc not in carried:
+            chain = [c]
+            while chain[-1] in par and chain[-1] not in own: chain.append(par[chain[-1]])
+            carried[mc] = chain[::-1]
+        for d in meaning(c):
+            if d not in depth: depth[d] = depth[c] + 1; par[d] = c; work.append(d)
+    return named, proof, carried
+
+THEORY = {'Semantics', 'Syntax', 'Pragmatics', 'Morphology', 'Phonology', 'Processing', 'Discourse', 'Logic'}
+
+def area(m):
+    p = m.split('.')
+    return p[1] if p[0] == 'Linglib' and len(p) > 1 else p[0]
+
+def roots(G, min_files=4, min_users=25):
+    """Directories of the theory layer whose root files (those importing nothing else in the directory)
+    import another theory area: rows `(users reaching the root file, all users, directory, root file,
+    imported file)`, most inherited first. Import paths only, so these are candidates, not verdicts."""
+    c = closure(G)
+    dirs = collections.defaultdict(list)
+    for m in G:
+        p = m.split('.')
+        if p[0] == 'Linglib' and len(p) > 2 and p[1] in THEORY:
+            for k in range(3, len(p)): dirs['.'.join(p[:k])].append(m)
+    rows = []
+    for d, fs in dirs.items():
+        if len(fs) < min_files: continue
+        S = set(fs)
+        users = [u for u in G if u not in S and c(u) & S]
+        if len(users) < min_users: continue
+        for r in fs:
+            if any(i in S for i in G[r]): continue
+            ru = sum(1 for u in users if r in c(u))
+            for t in G[r]:
+                if t not in S and area(t) in THEORY and area(t) != area(d):
+                    rows.append((ru, len(users), d, r, t))
+    return sorted(rows, reverse=True)
+
+def show_name(i): return f"{T['names'][i]} [{short(T['mods'][i])}]"
+
 def simulate(G2, G, label):
     c0, c1 = closure(G), closure(G2)
     lost, unmeasured = {}, []
@@ -115,6 +184,47 @@ def main(argv):
         for i in G[m]:
             got = ({i} | c(i)) & nd
             print(f'   {short(i):58} uses {len(got):3d} of {len(c(i)) + 1}')
+    elif cmd == 'cone':
+        m = args[0] if args[0].startswith(('Linglib.', 'Studies.')) else 'Linglib.' + args[0]
+        G = imports(); c = closure(G)(m)
+        named, proof, carried = rests(m)
+        lib = lambda x: x.startswith(('Linglib.', 'Studies.'))
+        nm = sorted(x for x in named if lib(x)); ca = sorted(x for x in carried if lib(x))
+        pf = sorted(x for x in proof if lib(x) and x not in named and x not in carried)
+        un = sorted(x for x in c if x not in named and x not in carried and x not in proof)
+        print(f'{short(m)}: imports {len(c)} files')
+        print(f'named by this file ({len(nm)}):')
+        for x in nm: print(f'   {short(x):50} by {len(named[x])} of its declarations')
+        print(f'carried, never named here ({len(ca)}):')
+        by = collections.defaultdict(list)
+        for x in ca: by[carried[x][1] if len(carried[x]) > 1 else carried[x][0]].append(x)
+        for car, xs in sorted(by.items(), key=lambda kv: -len(kv[1])):
+            print(f'   through {show_name(car)}:')
+            for x in xs: print(f'      {short(x)}')
+        print(f'used in proofs only ({len(pf)}): ' + ', '.join(short(x) for x in pf))
+        print(f'imported and unused ({len(un)}): ' + ', '.join(short(x) for x in un))
+    elif cmd == 'why':
+        m, t = (a if a.startswith(('Linglib.', 'Studies.')) else 'Linglib.' + a for a in args[:2])
+        named, proof, carried = rests(m)
+        if t in named:
+            print(f'{short(m)} names {short(t)} itself, in {len(named[t])} declarations:')
+            for i in sorted(named[t], key=lambda i: T['names'][i])[:12]:
+                hits = sorted({T['names'][d] for d in meaning(i) if T['mods'][d] == t})[:4]
+                print(f"   {T['names'][i]}  ->  {', '.join(hits)}")
+        elif t in carried:
+            print(f'{short(m)} never names {short(t)}; it is carried:')
+            print('   ' + '\n   -> '.join(show_name(i) for i in carried[t]))
+        elif t in proof:
+            print(f'{short(m)} uses {short(t)} only inside proofs ({len(proof[t])} declarations)')
+        else:
+            print(f'no declaration of {short(m)} rests on {short(t)}')
+    elif cmd == 'roots':
+        seen = set()
+        for ru, us, d, r, t in roots(imports()):
+            if (d, t) in seen: continue
+            seen.add((d, t))
+            print(f'{ru:4d} of {us:4d}  {short(d):36} {short(r)[len(short(d)) + 1:]:24} imports {short(t)}')
+            if len(seen) >= int(args[0]) if args else len(seen) >= 30: break
     elif cmd == 'cut':
         m, i = (a if a.startswith(('Linglib.', 'Studies.')) else 'Linglib.' + a for a in args[:2])
         G = imports(); G2 = dict(G); G2[m] = [x for x in G[m] if x != i]
