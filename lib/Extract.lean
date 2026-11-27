@@ -3,8 +3,8 @@ Declaration-level dependencies of the library, for `taproot.py`.
 
 `lean --run lib/Extract.lean <modules.txt> <out.tsv>` loads every listed module with its
 private data and writes one line per declaration: name, module, kind, flags, the declarations its type
-mentions, the declarations its value mentions, those reached only through a default argument, and the
-areas of Lean and mathlib it rests on.
+mentions, the declarations its value mentions, those reached only through a default argument, the
+areas of Lean and mathlib it rests on, and the first and last source line of the declaration.
 -/
 import Lean
 open Lean
@@ -77,6 +77,10 @@ unsafe def main (args : List String) : IO Unit := do
     let fl := (if n.isInternalDetail then "i" else "") ++ (if isPrivateName n then "p" else "") ++
       (if big then "b" else "") ++ (if sry then "s" else "")
     let shown := (privateToUserName? n).getD n
-    h.putStrLn s!"{shown}\t{m}\t{kind}\t{fl}\t{join t}\t{join v}\t{join d}\t{join te}\t{join ve}\t{nt}\t{nv}"
+    -- the source lines of the declaration, from its first modifier or doc comment to its last line
+    let (l₁, l₂) := match declRangeExt.find? (level := .server) env n <|> declRangeExt.find? env n with
+      | some r => (r.range.pos.line, r.range.endPos.line)
+      | none => (0, 0)
+    h.putStrLn s!"{shown}\t{m}\t{kind}\t{fl}\t{join t}\t{join v}\t{join d}\t{join te}\t{join ve}\t{nt}\t{nv}\t{l₁}\t{l₂}"
   h.flush
   IO.println s!"{names.size} constants from {mods.size} modules"

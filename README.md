@@ -27,7 +27,7 @@ bin/tap map [ADDRESS]                                           # the map from t
 - `lib/landscape.py`: places every hand-written file near the files its declarations use, with its
   exposure and review priority (`landscape.json`).
 - `lib/page.html`: the page.
-- `lib/query.py`: questions to the table (`users`, `needs`, `cut`, `move`; `cone` and `why` say
+- `lib/query.py`: questions to the table (`users`, `thin`, `own`, `rot`, `needs`, `cut`, `move`; `cone` and `why` say
   what a file names and what is carried to it through which declaration; `roots` lists directories
   whose root files import another theory area).
 - `lib/map.py`, `lib/map.html`: the map. Areas, then directories, then files as islands of dots,

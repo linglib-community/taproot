@@ -70,6 +70,41 @@ def users(declarations: list[str]) -> str:
 
 
 @mcp.tool()
+def thin(target: str = '', top: int = 25) -> str:
+    """For a file: each declaration someone wrote, with how many other files name it, how many rest on
+    it at any distance, and how many rest on the file through it alone (it is their only route).
+    For a directory, or nothing: files ranked by how many import them without using a declaration.
+    Use to find a declaration nothing uses, one that belongs in its single user, or one that carries a file.
+    A use inside an `example` is not seen, so check 'no user' with a build."""
+    os.environ['TAPROOT_TOP'] = str(top)
+    return tap('thin', target)
+
+
+@mcp.tool()
+def owners(target: str = '', top: int = 15) -> str:
+    """Who owns the substrate, from the dominator tree of the declaration graph under the studies and
+    language files. Each declaration is 'surface' (two consumer files reach it by separate routes),
+    'behind' one surface declaration, reached from 'one file' only, or 'unreached'. For a file: every
+    declaration with its status and what it sits behind. For a directory, or nothing: the totals, the
+    files that serve a single consumer file, the files no consumer reaches, and the largest gateways.
+    Unreached is a worklist, not a verdict: a study cut last week orphans sound substrate, and a use
+    inside an `example` leaves no declaration for the table to see. Build before deleting."""
+    os.environ['TAPROOT_TOP'] = str(top)
+    return tap('own', target)
+
+
+@mcp.tool()
+def rot(target: str = '', top: int = 20) -> str:
+    """The unreached substrate by kind. An 'unused theorem' is about live objects only: ordinary API no
+    study calls. A 'dead definition' is a concept nothing exercises, and 'on a dead definition' is what
+    was proved or built on one. For a directory, or nothing: the totals and the root concepts (dead
+    definitions resting only on live substrate) ranked by what was built on them. For a file: each
+    unreached declaration with its kind and its root. Dead is relative to today's studies."""
+    os.environ['TAPROOT_TOP'] = str(top)
+    return tap('rot', target)
+
+
+@mcp.tool()
 def needs(file: str) -> str:
     """What a file imports against what its declarations actually use."""
     return tap('needs', file)
