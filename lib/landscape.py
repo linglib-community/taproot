@@ -34,8 +34,9 @@ from scipy.spatial import cKDTree
 from sklearn.decomposition import TruncatedSVD
 from sklearn.manifold import TSNE
 
+from priority import WEIGHTS          # lib/priority.py, beside this file: one table of weights for both
+
 ROOT = os.path.abspath(os.environ.get('LINGLIB_ROOT', os.getcwd()))
-WEIGHTS = {'stops': 1.0, 'thin': 0.5, 'decide': 1.0, 'flagged': 0.8, 'unused_imports': 0.6, 'no_claims': 0.5}
 GAP = 0.0075          # least distance between two points, the map being the unit square
 
 

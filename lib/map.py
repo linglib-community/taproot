@@ -23,9 +23,21 @@ drawn as one island per group, and the top level sits in a fixed layout. Both co
 field's usual order. `--groups FILE` replaces that table with a JSON object of the same shape,
 `{directory: {child: group}, "@layout": {directory: {child: [column, row]}}}`.
 
+The map's colour modes are `lens=priority` (review priority, the default: `lib/priority.py`), `area`,
+`reach`, `kd` and, where build times are recorded, `bt`.
+
+Every named file has a `source` link to its text on GitHub at the measured commit (`--sha`, else
+the `HEAD` of the tree if it is a checkout, else `main`; the repository from `--repo`,
+`GITHUB_REPOSITORY` or the checkout's `origin`). A page built on a developer's machine also gets an
+`editor` link into a working checkout (`--checkout`, else the tree itself if it is a git checkout),
+through `TAPROOT_EDITOR`: `vscode`, `cursor`, `zed`, a URL with `{path}` in it (the absolute path,
+leading slash included), or `none`. Unset,
+it is the first of those three editors found installed, or none; in CI it is always none, since
+the path would mean nothing to a reader of the published page.
+
 Takes the checkout from `LINGLIB_ROOT` and the table from `TAPROOT_TABLE`, as `query.py` does.
 """
-import argparse, importlib.util, json, os, re, subprocess, sys
+import argparse, importlib.util, json, os, re, shutil, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -52,6 +64,42 @@ def build_times(table, mods):
             if sec: t[m] = float(sec)
     return [round(t.get(m, 0), 1) for m in mods]
 
+EDITORS = {'vscode': ('vscode://file{path}', 'Visual Studio Code.app', 'code'),
+           'cursor': ('cursor://file{path}', 'Cursor.app', 'cursor'),
+           'zed': ('zed://file{path}', 'Zed.app', 'zed')}
+
+def git(tree, *args):
+    try: return subprocess.run(['git', '-C', tree, *args], capture_output=True, text=True).stdout.strip()
+    except Exception: return ''
+
+def editor_url():
+    """The URL pattern of `TAPROOT_EDITOR`, `{path}` standing for the file; '' for none."""
+    want = os.environ.get('TAPROOT_EDITOR', '').strip()
+    if want == 'none' or os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'): return ''
+    if '{path}' in want: return want
+    if want in EDITORS: return EDITORS[want][0]
+    for url, app, cmd in EDITORS.values():                   # unset: an editor that is installed here
+        if any(os.path.exists(os.path.join(d, app)) for d in ('/Applications', os.path.expanduser('~/Applications'))) \
+                or shutil.which(cmd): return url
+    return ''
+
+def source_links(root, mods, short, sha, repo, checkout):
+    """Where the page's `source` and `editor` links go: the repository and commit on GitHub, and a
+    working checkout with the files of `mods` that are not in it."""
+    path = lambda f: ('' if f.startswith('Studies.') else 'Linglib/') + f.replace('.', '/') + '.lean'   # as the page does
+    odd = [m for m in mods if path(short(m)) != m.replace('.', '/') + '.lean']
+    if odd: print(f'map.py: {len(odd)} files whose path the page would get wrong, e.g. {odd[0]}', file=sys.stderr)
+    is_tree = bool(git(root, 'rev-parse', '--show-toplevel'))
+    sha = sha or (git(root, 'rev-parse', 'HEAD') if is_tree else '')
+    ed = editor_url()
+    local = os.path.abspath(checkout) if checkout else (git(root, 'rev-parse', '--show-toplevel') if is_tree else '')
+    if not ed or not local or not os.path.isdir(os.path.join(local, 'Linglib')): ed = local = ''
+    origin = git(local or root, 'remote', 'get-url', 'origin')
+    slug = re.sub(r'^.*github\.com[:/]|\.git$', '', origin) if 'github.com' in origin else ''
+    return dict(sha=sha, repo=repo or os.environ.get('GITHUB_REPOSITORY') or slug or 'linglib-community/linglib',
+                local=local, ed=ed,
+                nolocal=[i for i, m in enumerate(mods) if not os.path.exists(os.path.join(local, m.replace('.', '/') + '.lean'))] if local else [])
+
 def own_groups(root):
     """The families and layout of `lib/groups.py`, read from the checkout."""
     spec = importlib.util.spec_from_file_location('groups', os.path.join(HERE, 'groups.py'))
@@ -72,7 +120,7 @@ def titles(root, mods):
         out.append(t)
     return out
 
-def build(out, base=None, base_label='', groups=None, label=''):
+def build(out, base=None, base_label='', groups=None, label='', sha='', repo='', checkout=''):
     spec = importlib.util.spec_from_file_location('query', os.path.join(HERE, 'query.py'))
     q = importlib.util.module_from_spec(spec); spec.loader.exec_module(q)
     T, G, short = q.T, q.imports(), q.short
@@ -90,10 +138,13 @@ def build(out, base=None, base_label='', groups=None, label=''):
     for ru, us, d, r, t in q.roots(G):
         if (d, t) in seen: continue
         seen.add((d, t)); rank.append([ru, us, short(d), ix[r], ix[t]])
+    pspec = importlib.util.spec_from_file_location('priority', os.path.join(HERE, 'priority.py'))
+    P = importlib.util.module_from_spec(pspec); pspec.loader.exec_module(P)
+    pri = P.scores(q, q.ROOT, mods, G, rest)              # exposure, review priority, heaviest signals
     try: commit = subprocess.run(['git', '-C', q.ROOT, 'log', '-1', '--format=%h %cd', '--date=short'],
                                  capture_output=True, text=True).stdout.strip()
     except Exception: commit = ''
-    meta = dict(commit=label or commit, files=len(mods), measured=len(rest))
+    meta = dict(commit=label or commit, files=len(mods), measured=len(rest), **source_links(q.ROOT, mods, short, sha, repo, checkout))
     old = None
     if base:
         head_root, q.ROOT = q.ROOT, os.path.abspath(base)
@@ -108,7 +159,9 @@ def build(out, base=None, base_label='', groups=None, label=''):
     page = open(os.path.join(HERE, 'map.html'), encoding='utf-8').read()
     for key, val in (('__FILES__', [short(m) for m in mods]), ('__IMP__', imp), ('__REST__', rest),
                      ('__RANK__', rank[:400]), ('__META__', meta), ('__BASE__', old),
-                     ('__SRC__', dict(source_counts(q.ROOT, mods), bt=build_times(q.TABLE, mods))), ('__TITLES__', titles(q.ROOT, mods)),
+                     ('__SRC__', dict(source_counts(q.ROOT, mods), bt=build_times(q.TABLE, mods),
+                                      pe=[p[0] for p in pri], pr=[p[1] for p in pri], ps=[p[2] for p in pri])),
+                     ('__TITLES__', titles(q.ROOT, mods)),
                      ('__GROUPS__', json.load(open(groups, encoding='utf-8')) if groups else own_groups(q.ROOT))):
         page = page.replace(key, json.dumps(val, separators=(',', ':')))
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
@@ -122,5 +175,8 @@ if __name__ == '__main__':
     ap.add_argument('--base-label', default='', help='how to name the base on the page, e.g. its commit')
     ap.add_argument('--groups', help='JSON {directory: {child: group}} for directories drawn by group')
     ap.add_argument('--label', default='', help='what to call this build on the page, when the tree is not a git checkout')
+    ap.add_argument('--sha', default='', help='the commit the table was measured at, for the links to GitHub')
+    ap.add_argument('--repo', default='', help='owner/name on GitHub, when not the origin of the checkout')
+    ap.add_argument('--checkout', default='', help='a working checkout on this machine, for the editor links')
     a = ap.parse_args()
-    build(a.out, a.base, a.base_label, a.groups, a.label)
+    build(a.out, a.base, a.base_label, a.groups, a.label, a.sha, a.repo, a.checkout)

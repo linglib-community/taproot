@@ -11,4 +11,5 @@ if [ -n "$base" ] && [ "$base" != "$(git rev-parse HEAD)" ]; then
   git archive "$base" Linglib Studies | tar -x -C .lake/build/taproot-base
   args+=(--base .lake/build/taproot-base --base-label "main ${base:0:10}")
 fi
-python3 "$here/map.py" "${args[@]}"
+# no editor links on a published page: a path on the build machine means nothing to its reader
+TAPROOT_EDITOR=none python3 "$here/map.py" "${args[@]}" --sha "$(git rev-parse HEAD)"

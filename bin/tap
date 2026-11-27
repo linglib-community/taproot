@@ -39,7 +39,7 @@ age() {   # one line, to stderr: which table this is and how far behind
   echo "[table: main ${sha:0:10}, $n behind origin/main]" >&2
 }
 page() {
-  local sha; sha=$(latest); local args=(--out "$cache/map.html" --label "main ${sha:0:10}")
+  local sha; sha=$(latest); local args=(--out "$cache/map.html" --label "main ${sha:0:10}" --sha "$sha" --checkout "$repo")
   if [ -f "$cache/previous" ] && [ -d "$cache/$(cat "$cache/previous")/src/Linglib" ]; then
     local b; b=$(cat "$cache/previous"); args+=(--base "$cache/$b/src" --base-label "main ${b:0:10}"); fi
   TAPROOT_TABLE="$cache/$sha/table/table.tsv" LINGLIB_ROOT="$cache/$sha/src" python3 "$here/lib/map.py" "${args[@]}" >&2
